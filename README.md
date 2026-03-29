@@ -18,35 +18,56 @@ This project is not only a schema demo. It proves production-grade time-series d
 - SQL analytics with window functions: Demonstrates rolling metrics, rank, momentum, cumulative measures, and volatility. Real-world use case: risk and market behavior monitoring.
 - Performance investigation discipline: Demonstrates EXPLAIN ANALYZE reading from baseline scans to indexed/chunk-pruned plans. Real-world use case: query tuning and SLA hardening.
 
-## 2) Architecture Diagram (ASCII)
+## 2) Architecture Diagram
 
+```mermaid
+flowchart TD
+  A[Raw NSE Tick Data<br/>15-min intervals | 10 symbols | 90 days]
+  B[TimescaleDB Hypertable<br/>market_ticks | chunked by 1 day]
+  C[Hourly Continuous Aggregate<br/>hourly_ohlcv]
+  D[Daily Continuous Aggregate<br/>daily_ohlcv built on hourly_ohlcv]
+  E[Window Function Analytics<br/>rolling avg | ranking | lag momentum<br/>cumulative volume | volatility]
+  F[Portfolio Snapshot Analytics<br/>portfolio_summary hypertable]
+  G[Lifecycle Policies<br/>compression after 7 days<br/>retention after 2 years]
+  H[Consumption Layer<br/>pgAdmin SQL | scripts report output]
+
+  A --> B
+  B --> C
+  C --> D
+  B --> E
+  B --> F
+  B --> G
+  C --> H
+  D --> H
+  E --> H
+  F --> H
+```
+
+```text
 Raw NSE Tick Data (15-min intervals, 10 symbols, 90 days)
-|
-v
-┌─────────────────────────────────────────────┐
-| TimescaleDB Hypertable |
-| market_ticks (partitioned by day) |
-| Compression: 90%+ after 7 days |
-| Retention: auto-drop after 2 years |
-└──────────────┬──────────────────────────────┘
-|
-┌───────┴───────┐
-v v
-┌─────────────┐ ┌──────────────────────────┐
-| Hourly | | Window Function Queries |
-| OHLCV | | - Rolling 7-day avg |
-| (Level 1 | | - Volume ranking |
-| Aggregate)| | - Price momentum LAG() |
-└──────┬──────┘ | - Cumulative volume |
-| | - Volatility STDDEV |
-v └──────────────────────────┘
-┌─────────────┐
-| Daily |
-| OHLCV |
-| (Level 2 |
-| Aggregate |
-| on Level 1|
-└─────────────┘
+         |
+         v
+    +------------------------------------------+
+    | TimescaleDB Hypertable: market_ticks     |
+    | Partitioning: 1-day chunks               |
+    | Policies: compression + retention        |
+    +-------------------+----------------------+
+              |
+      +-------------+-------------+
+      v                           v
+ +-------------------------+   +--------------------------+
+ | hourly_ohlcv            |   | SQL window analytics     |
+ | (continuous aggregate)  |   | on market_ticks          |
+ +------------+------------+   +--------------------------+
+        |
+        v
+ +-------------------------+
+ | daily_ohlcv             |
+ | (hierarchical aggregate)|
+ +-------------------------+
+
+All outputs are queryable via pgAdmin and exportable via scripts/run_analysis.sh.
+```
 
 ## 3) Tech Stack
 
@@ -174,51 +195,31 @@ ORDER BY snapshot_time DESC, symbol;
 - Compression and retention policies are core lifecycle controls, not optional tuning extras.
 - Query-plan literacy with EXPLAIN ANALYZE is necessary to validate indexing and chunk exclusion benefits.
 
-## 10) Demo Output and Interview Talking Points
+## 10) Runtime Validation and Expected Output
 
 ### Expected Runtime Output
 
-- Docker startup creates and starts two services: market-timescaledb and market-pgadmin.
-- Seed initialization loads synthetic NSE tick data for 10 symbols over the last 90 days.
-- Continuous aggregates are refreshed so hourly_ohlcv and daily_ohlcv are queryable immediately.
-- Running scripts/run_analysis.sh writes a timestamped report into results/.
+- Docker startup creates market-timescaledb and market-pgadmin services.
+- Seed initialization loads NSE-style synthetic ticks for 10 symbols.
+- Continuous aggregates become queryable after refresh.
+- scripts/run_analysis.sh writes a timestamped report file in results/.
 
-### What Interviewers Can Verify Quickly
-
-- Data scale check:
+### Validation Queries
 
 ```sql
-SELECT COUNT(*) FROM market_ticks;
-SELECT COUNT(*) FROM hourly_ohlcv;
-SELECT COUNT(*) FROM daily_ohlcv;
+SELECT COUNT(*) AS tick_rows FROM market_ticks;
+SELECT COUNT(*) AS hourly_rows FROM hourly_ohlcv;
+SELECT COUNT(*) AS daily_rows FROM daily_ohlcv;
 ```
-
-- Momentum analysis with window function:
-
-```sql
-SELECT
-  symbol,
-  day,
-  close,
-  LAG(close) OVER (PARTITION BY symbol ORDER BY day) AS prev_close,
-  ROUND(
-    ((close - LAG(close) OVER (PARTITION BY symbol ORDER BY day))
-    / NULLIF(LAG(close) OVER (PARTITION BY symbol ORDER BY day), 0)) * 100, 2
-  ) AS pct_change
-FROM daily_ohlcv
-ORDER BY symbol, day DESC
-LIMIT 100;
-```
-
-- Compression and storage optimization proof:
 
 ```sql
 SELECT * FROM chunk_compression_stats('market_ticks');
 ```
 
-### Professional Discussion Points
-
-- Why DECIMAL(15,4) is required in finance to avoid floating-point drift.
-- Why hierarchical continuous aggregates reduce compute cost as history grows.
-- How chunk exclusion and indexing work together for low-latency time filters.
-- Why retention and compression policies are operational controls, not optional tuning.
+```sql
+SELECT symbol, day, close,
+       LAG(close) OVER (PARTITION BY symbol ORDER BY day) AS prev_close
+FROM daily_ohlcv
+ORDER BY symbol, day DESC
+LIMIT 100;
+```
