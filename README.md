@@ -173,3 +173,52 @@ ORDER BY snapshot_time DESC, symbol;
 - Hierarchical aggregates significantly reduce recomputation cost on long-range reporting.
 - Compression and retention policies are core lifecycle controls, not optional tuning extras.
 - Query-plan literacy with EXPLAIN ANALYZE is necessary to validate indexing and chunk exclusion benefits.
+
+## 10) Demo Output and Interview Talking Points
+
+### Expected Runtime Output
+
+- Docker startup creates and starts two services: market-timescaledb and market-pgadmin.
+- Seed initialization loads synthetic NSE tick data for 10 symbols over the last 90 days.
+- Continuous aggregates are refreshed so hourly_ohlcv and daily_ohlcv are queryable immediately.
+- Running scripts/run_analysis.sh writes a timestamped report into results/.
+
+### What Interviewers Can Verify Quickly
+
+- Data scale check:
+
+```sql
+SELECT COUNT(*) FROM market_ticks;
+SELECT COUNT(*) FROM hourly_ohlcv;
+SELECT COUNT(*) FROM daily_ohlcv;
+```
+
+- Momentum analysis with window function:
+
+```sql
+SELECT
+  symbol,
+  day,
+  close,
+  LAG(close) OVER (PARTITION BY symbol ORDER BY day) AS prev_close,
+  ROUND(
+    ((close - LAG(close) OVER (PARTITION BY symbol ORDER BY day))
+    / NULLIF(LAG(close) OVER (PARTITION BY symbol ORDER BY day), 0)) * 100, 2
+  ) AS pct_change
+FROM daily_ohlcv
+ORDER BY symbol, day DESC
+LIMIT 100;
+```
+
+- Compression and storage optimization proof:
+
+```sql
+SELECT * FROM chunk_compression_stats('market_ticks');
+```
+
+### Professional Discussion Points
+
+- Why DECIMAL(15,4) is required in finance to avoid floating-point drift.
+- Why hierarchical continuous aggregates reduce compute cost as history grows.
+- How chunk exclusion and indexing work together for low-latency time filters.
+- Why retention and compression policies are operational controls, not optional tuning.
