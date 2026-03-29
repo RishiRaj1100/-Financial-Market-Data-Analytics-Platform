@@ -22,14 +22,14 @@ This project is not only a schema demo. It proves production-grade time-series d
 
 ```mermaid
 flowchart TD
-  A[Raw NSE Tick Data<br/>15-min intervals | 10 symbols | 90 days]
-  B[TimescaleDB Hypertable<br/>market_ticks | chunked by 1 day]
+  A[Raw NSE Tick Data<br/>15-min intervals, 10 symbols, 90 days]
+  B[TimescaleDB Hypertable<br/>market_ticks, chunked by 1 day]
   C[Hourly Continuous Aggregate<br/>hourly_ohlcv]
   D[Daily Continuous Aggregate<br/>daily_ohlcv built on hourly_ohlcv]
-  E[Window Function Analytics<br/>rolling avg | ranking | lag momentum<br/>cumulative volume | volatility]
+  E[Window Function Analytics<br/>rolling avg, ranking, lag momentum<br/>cumulative volume, volatility]
   F[Portfolio Snapshot Analytics<br/>portfolio_summary hypertable]
   G[Lifecycle Policies<br/>compression after 7 days<br/>retention after 2 years]
-  H[Consumption Layer<br/>pgAdmin SQL | scripts report output]
+  H[Consumption Layer<br/>pgAdmin SQL, scripts report output]
 
   A --> B
   B --> C
